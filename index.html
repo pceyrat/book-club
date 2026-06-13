@@ -199,39 +199,36 @@
     };
 
     onAuthStateChanged(auth, (u) => {
-        if (!u) {
+
+        if (u) {
+            user = {
+                uid: u.uid,
+                name: u.displayName,
+                photo: u.photoURL
+            };
+
+            document.getElementById("userBox").innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <img src="${user.photo}" width="28" style="border-radius:50%">
+                <span>Signed in as <b>${user.name}</b></span>
+            </div>
+        `;
+
+            document.getElementById("logoutBtn").style.display = "inline-block";
+        } else {
             user = null;
             document.getElementById("userBox").innerHTML = "";
             document.getElementById("logoutBtn").style.display = "none";
-            return;
         }
-
-        user = {
-            uid: u.uid,
-            name: u.displayName,
-            photo: u.photoURL
-        };
-
-        document.getElementById("userBox").innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;">
-            <img src="${user.photo}" width="28" style="border-radius:50%">
-            <span>Signed in as <b>${user.name}</b></span>
-        </div>
-    `;
-
-        document.getElementById("logoutBtn").style.display = "inline-block";
-
-        document.getElementById("entryInput").addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                addEntry();
-            }
-        });
 
         startApp();
     });
 
+    let started = false;
     function startApp() {
+        if (started) return;
+        started = true;
+
         onSnapshot(query(entriesRef, orderBy("score", "desc")), (snap) => {
             entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             render();
