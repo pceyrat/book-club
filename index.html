@@ -35,9 +35,6 @@
             border: 1px solid #ddd;
             padding: 12px;
             margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
 
         .meta {
@@ -58,6 +55,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            justify-content: flex-end;
         }
 
         .score {
@@ -68,6 +66,56 @@
 
         #userBox {
             margin-bottom: 10px;
+        }
+
+        .comments {
+            margin-top: 10px;
+            padding-left: 10px;
+            border-left: 2px solid #eee;
+        }
+
+        .comment {
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .comment-meta {
+            font-size: 11px;
+            color: gray;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .comment-meta img {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .balloon {
+            position: fixed;
+            bottom: -100px;
+            width: 60px;
+            height: 80px;
+            border-radius: 50%;
+            opacity: 0.9;
+            animation: floatUp 3s ease-in forwards;
+            z-index: 9999;
+        }
+
+        @keyframes floatUp {
+            0% {
+                transform: translateY(0);
+            }
+            100% {
+                transform: translateY(-110vh);
+                opacity: 0;
+            }
         }
     </style>
 </head>
@@ -100,7 +148,8 @@
         onSnapshot,
         doc,
         runTransaction,
-        deleteDoc
+        deleteDoc,
+        onSnapshot as fsOnSnapshot
     } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
     import {
@@ -200,10 +249,7 @@
             e => e.text.toLowerCase().trim() === text.toLowerCase().trim()
         );
 
-        if (duplicate) {
-            alert("Duplicate entry not allowed");
-            return;
-        }
+        if (duplicate) return alert("Duplicate entry not allowed");
 
         await addDoc(entriesRef, {
             text,
@@ -243,12 +289,11 @@
 
             let userVotes = delta;
             if (voteSnap.exists()) {
-                console.log(user)
                 if (user.name.toString().toLowerCase().includes("anna") || voteSnap.data().value !== delta) {
                     userVotes += voteSnap.data().value;
                 }
                 else {
-                    delta = 0
+                    delta = 0;
                 }
             }
 
@@ -266,14 +311,135 @@
 
     window.deleteEntry = async function (entryId, ownerUid) {
         if (!user) return;
+        if (user.uid !== ownerUid) return alert("You can only delete your own entries.");
+        await deleteDoc(doc(db, "entries", entryId));
+    };
 
-        if (user.uid !== ownerUid) {
-            alert("You can only delete your own entries.");
+    const commentListeners = {};
+
+    window.toggleComments = function (entryId) {
+        const box = document.getElementById(`comments-${entryId}`);
+
+        const isOpen = !box.classList.contains("hidden");
+
+        if (isOpen) {
+            box.classList.add("hidden");
+            commentListeners[entryId] = null
             return;
         }
 
-        await deleteDoc(doc(db, "entries", entryId));
+        box.classList.remove("hidden");
+
+        box.innerHTML = `
+        <div id="list-${entryId}">Loading comments...</div>
+
+        ${user ? `
+            <input id="comment-${entryId}"
+       placeholder="Write a comment..."
+       onkeydown="handleCommentKey(event, '${entryId}')" />
+
+<button onclick="addComment('${entryId}')">Post</button>
+            <button onclick="addComment('${entryId}')">Post</button>
+        ` : `<i>Login to comment</i>`}
+    `;
+
+        const listDiv = document.getElementById(`list-${entryId}`);
+
+        const commentsRef = collection(db, "entries", entryId, "comments");
+
+        if (commentListeners[entryId]) {
+            return;
+        }
+
+        const unsubscribe = fsOnSnapshot(
+            query(commentsRef, orderBy("createdAt", "asc")),
+            (snap) => {
+                listDiv.innerHTML = snap.docs.map(d => {
+                    const c = d.data();
+                    return `
+    <div class="comment">
+        <div class="comment-meta">
+            ${c.createdBy?.photo ? `<img src="${c.createdBy.photo}">` : ""}
+            <b>${c.createdBy?.name || "unknown"}</b>
+
+            ${
+                        user && c.createdBy?.uid === user.uid
+                            ? `<button onclick="deleteComment('${entryId}', '${d.id}')"
+                               style="margin-left:auto;color:red;">
+                          🗑️
+                       </button>`
+                            : ""
+                    }
+        </div>
+
+        <div>${escapeHtml(c.text)}</div>
+    </div>
+`;;
+                }).join("") || `<i>No comments yet</i>`;
+            }
+        );
+
+        commentListeners[entryId] = unsubscribe;
     };
+
+    window.handleCommentKey = function (event, entryId) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            addComment(entryId);
+        }
+    };
+
+    window.deleteComment = async function (entryId, commentId) {
+        if (!user) return;
+
+        const ref = doc(db, "entries", entryId, "comments", commentId);
+
+        try {
+            await deleteDoc(ref);
+        } catch (e) {
+            console.error(e);
+            alert("You cannot delete this comment.");
+        }
+    };
+
+    window.addComment = async function (entryId) {
+        if (!user) return;
+
+        const input = document.getElementById(`comment-${entryId}`);
+        const text = input.value.trim();
+        if (!text) return;
+
+        const commentsRef = collection(db, "entries", entryId, "comments");
+
+        await addDoc(commentsRef, {
+            text,
+            createdAt: Date.now(),
+            createdBy: user
+        });
+
+        spawnBalloons(25);
+
+        input.value = "";
+    };
+
+    function spawnBalloons(count = 8) {
+        const colors = ["#ff4d6d", "#4dabf7", "#51cf66", "#ffd43b", "#845ef7"];
+
+        for (let i = 0; i < count; i++) {
+            const balloon = document.createElement("div");
+
+            balloon.className = "balloon";
+            balloon.style.left = Math.random() * 100 + "vw";
+            balloon.style.background = colors[Math.floor(Math.random() * colors.length)];
+            balloon.style.animationDuration = (2.5 + Math.random() * 1.5) + "s";
+
+            document.body.appendChild(balloon);
+
+            setTimeout(() => {
+                balloon.remove();
+            }, 4000);
+        }
+    }
 
     function render() {
         const q = document.getElementById("searchInput").value.toLowerCase();
@@ -285,12 +451,18 @@
         document.getElementById("entries").innerHTML = filtered.map(e => `
         <div class="entry">
             <div>
-                <div><b>${escapeHtml(e.text)}</b></div>
+                <b>${escapeHtml(e.text)}</b>
 
                 <div class="meta">
                     ${e.createdBy?.photo ? `<img src="${e.createdBy.photo}">` : ""}
-                    <span>added by ${e.createdBy?.name || "unknown"}</span>
+                    added by ${e.createdBy?.name || "unknown"}
                 </div>
+
+                <button onclick="toggleComments('${e.id}')">
+                    💬 Comments
+                </button>
+
+                <div id="comments-${e.id}" class="comments hidden"></div>
             </div>
 
             <div class="votes">
@@ -300,9 +472,7 @@
 
                 ${
             user && e.createdBy?.uid === user.uid
-                ? `<button onclick="deleteEntry('${e.id}', '${e.createdBy.uid}')" style="color:red;">
-                        🗑️
-                       </button>`
+                ? `<button onclick="deleteEntry('${e.id}', '${e.createdBy.uid}')" style="color:red;">🗑️</button>`
                 : ""
         }
             </div>
