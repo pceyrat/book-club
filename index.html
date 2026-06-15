@@ -183,6 +183,7 @@
     document.getElementById("loginBtn").onclick = async () => {
         try {
             await signInWithPopup(auth, provider);
+            location.reload();
         } catch (e) {
             console.error(e);
             alert("Login failed");
@@ -192,6 +193,7 @@
     document.getElementById("logoutBtn").onclick = async () => {
         try {
             await signOut(auth);
+            location.reload();
         } catch (e) {
             console.error(e);
             alert("Logout failed");
